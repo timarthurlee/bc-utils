@@ -35,6 +35,7 @@ class HistoricalDataResult(enum.Enum):
 class Resolution(enum.Enum):
     Day = (1, "daily")
     Hour = (2, "hourly")
+    Minute = (3, "minute")
 
     def __init__(self, value, adjective):
         self._value_ = value
