@@ -289,6 +289,7 @@ def get_barchart_downloads(
     do_daily: bool = True,
     pause_between_downloads: bool = True,
     default_day_count: int = 400,
+    resolution_list: list = [Resolution.Hour]
 ):
     """
     Run a download session, performing as many contract downloads as possible, given
@@ -327,8 +328,11 @@ def get_barchart_downloads(
         for contract in contract_list:
             if max_exceeded:
                 break
+            
+            if do_daily:
+                resolution_list = Resolution
 
-            for resolution in Resolution if do_daily else [Resolution.Hour]:
+            for resolution in resolution_list:
                 # work out instrument code and get config
                 market_code = contract[: len(contract) - 3]
                 instr_code = inv_contract_map[market_code.upper()]
@@ -351,7 +355,7 @@ def get_barchart_downloads(
                 )
 
                 if _before_available_res(resolution, start_date, instr_config):
-                    date_type = "tick" if resolution == Resolution.Hour else "EOD"
+                    date_type = "EOD" if resolution == Resolution.Day else "tick"
                     logger.info(
                         f"{resolution.adj} prices for {contract} starting "
                         f"{start_date.strftime('%Y-%m-%d')} is before configured "
