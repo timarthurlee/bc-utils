@@ -210,62 +210,89 @@ def save_prices_for_contract(
                 "Referer": url,
                 "x-xsrf-token": xsrf,
             }
-
-            payload = {
-                "_token": hist_csrf_token,
-                "fileName": contract + "_Daily_Historical Data",
-                "symbol": contract,
-                "fields": "tradeTime.format(Y-m-d),openPrice,highPrice,lowPrice,"
-                "lastPrice,volume",
-                "startDate": start_date.strftime("%Y-%m-%d"),
-                "endDate": end_date.strftime("%Y-%m-%d"),
-                "orderBy": "tradeTime",
-                "orderDir": "asc",
-                "method": "historical",
-                "limit": "20000",
-                "customView": "true",
-                "pageTitle": "Historical Data",
-            }
+            payload_limit = 20000
+            all_data_frames = []
 
             dateformat = "%m/%d/%Y %H:%M"
+            chunk_size = 0
             if res == Resolution.Day:
-                payload["type"] = "eod"
-                payload["period"] = "daily"
+                chunk_days = payload_limit
+                payload_type = "eod"
+                payload_period = "dailyNearest"
                 dateformat = "%Y-%m-%d"
 
             elif res == Resolution.Hour:
-                payload["type"] = "minutes"
-                payload["interval"] = 60
+                chunk_days = (payload_limit // 24)  # Convert hours to full days
+                payload_type = "nearby_minutes"
+                payload_interval = 60
 
-            if not dry_run:
-                resp = session.post(
-                    BARCHART_URL + "my/download", headers=headers, data=payload
+            elif res == Resolution.Minute:
+                chunk_days = (payload_limit // (24 * 60))  # Convert minutes to full days
+                payload_type = "nearby_minutes"
+                payload_interval = 1
+
+            chunk_size = timedelta(days=chunk_days)
+            
+            total_days = (end_date - start_date).days
+            chunks_needed = (total_days // chunk_size.days) + 1
+
+            current_start = start_date
+            for chunk in range(chunks_needed):
+                current_end = min(current_start + chunk_size, end_date)
+
+                payload = {
+                    "_token": hist_csrf_token,
+                    "fileName": contract + "_Daily_Historical Data",
+                    "symbol": contract,
+                    "fields": "tradeTime.format(Y-m-d),openPrice,highPrice,lowPrice,"
+                    "lastPrice,volume",
+                    "startDate": current_start.strftime("%Y-%m-%d"),
+                    "endDate": current_end.strftime("%Y-%m-%d"),
+                    "orderBy": "tradeTime",
+                    "orderDir": "asc",
+                    "method": "historical",
+                    "limit": payload_limit,
+                    "customView": "true",
+                    "pageTitle": "Historical Data",
+                    "type": payload_type,                    
+                    **({"interval": payload_interval} if res != Resolution.Day else {}),
+                    **({"period": payload_period} if res == Resolution.Day else {})
+                }
+
+                if not dry_run:
+                    resp = session.post(
+                        BARCHART_URL + "my/download", headers=headers, data=payload
+                    )
+                    logger.info(
+                        f"POST {BARCHART_URL + 'my/download'}, "
+                        f"status: {resp.status_code}, "
+                        f"data length: {len(resp.content)}"
+                    )
+                    if resp.status_code == 200:
+                        if "Error retrieving data" not in resp.text:
+                            iostr = io.StringIO(resp.text)
+                            chunk_df = pd.read_csv(iostr, skipfooter=1, engine="python")
+                            if chunk_df is not None:
+                                all_data_frames.append(chunk_df)                                      
+                        else:
+                            logger.info(
+                                f"Barchart data problem for '{contract}', not writing"
+                            )            
+                else:
+                    logger.info(f"Not POSTing to {BARCHART_URL + 'my/download'}, dry_run")
+
+                current_start = current_end
+            
+            if not dry_run and all_data_frames:
+                df = pd.concat(all_data_frames)
+                df["Time"] = pd.to_datetime(df["Time"], format=dateformat)
+                df.set_index("Time", inplace=True)
+                df.index = df.index.tz_localize(tz="US/Central").tz_convert(
+                    "UTC"
                 )
-                logger.info(
-                    f"POST {BARCHART_URL + 'my/download'}, "
-                    f"status: {resp.status_code}, "
-                    f"data length: {len(resp.content)}"
-                )
-                if resp.status_code == 200:
-                    if "Error retrieving data" not in resp.text:
-                        iostr = io.StringIO(resp.text)
-                        df = pd.read_csv(iostr, skipfooter=1, engine="python")
-                        df["Time"] = pd.to_datetime(df["Time"], format=dateformat)
-                        df.set_index("Time", inplace=True)
-                        df.index = df.index.tz_localize(tz="US/Central").tz_convert(
-                            "UTC"
-                        )
-                        df = df.rename(columns={"Last": "Close"})
-
-                        logger.info(f"writing to: {save_path}")
-                        df.to_csv(save_path, date_format="%Y-%m-%dT%H:%M:%S%z")
-
-                    else:
-                        logger.info(
-                            f"Barchart data problem for '{contract}', not writing"
-                        )
-            else:
-                logger.info(f"Not POSTing to {BARCHART_URL + 'my/download'}, dry_run")
+                df = df.rename(columns={"Last": "Close"})
+                logger.info(f"writing to: {save_path}")
+                df.to_csv(save_path, date_format="%Y-%m-%dT%H:%M:%S%z")
 
             logger.info(
                 f"Finished getting Barchart historic {res.adj} prices for {contract}\n"
