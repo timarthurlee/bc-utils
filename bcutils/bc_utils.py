@@ -36,6 +36,9 @@ class Resolution(enum.Enum):
     Day = (1, "daily")
     Hour = (2, "hourly")
     Minute = (3, "minute")
+    Day_Nearby = (4, "daily_nearby")
+    Hour_Nearby = (5, "hourly_nearby")
+    Minute_Nearby = (6, "minute_nearby")
 
     def __init__(self, value, adjective):
         self._value_ = value
@@ -215,20 +218,20 @@ def save_prices_for_contract(
 
             dateformat = "%m/%d/%Y %H:%M"
             chunk_size = 0
-            if res == Resolution.Day:
+            if res in [Resolution.Day, Resolution.Day_Nearby]:
                 chunk_days = payload_limit
                 payload_type = "eod"
-                payload_period = "dailyNearest"
+                payload_period = "dailyNearest" if res == Resolution.Day_Nearby else "daily"
                 dateformat = "%Y-%m-%d"
 
-            elif res == Resolution.Hour:
+            elif res in [Resolution.Hour, Resolution.Hour_Nearby]:
                 chunk_days = (payload_limit // 24)  # Convert hours to full days
-                payload_type = "nearby_minutes"
+                payload_type = "nearby_minutes" if res == Resolution.Hour_Nearby else "minutes"
                 payload_interval = 60
 
-            elif res == Resolution.Minute:
+            elif res in [Resolution.Minute, Resolution.Minute_Nearby]:
                 chunk_days = (payload_limit // (24 * 60))  # Convert minutes to full days
-                payload_type = "nearby_minutes"
+                payload_type = "nearby_minutes" if res == Resolution.Minute_Nearby else "minutes"
                 payload_interval = 1
 
             chunk_size = timedelta(days=chunk_days)
@@ -382,6 +385,7 @@ def get_barchart_downloads(
                     instr_config,
                     default_day_count=default_day_count,
                     next_contract=next_contract,
+                    nearby = True if resolution in [Resolution.Day_Nearby, Resolution.Hour_Nearby, Resolution.Minute_Nearby] else False,
                 )
 
                 if _before_available_res(resolution, start_date, instr_config):
@@ -790,7 +794,7 @@ def _insufficient_data(session, symbol: str, res: Resolution):
         return True
 
 
-def _get_start_end_dates(month, year, instr_config=None, default_day_count: int = 400, next_contract = None):
+def _get_start_end_dates(month, year, instr_config=None, default_day_count: int = 400, next_contract = None, nearby = False):
     now = datetime.now()
 
     # we need to work out a date range for which we want the prices
@@ -798,16 +802,20 @@ def _get_start_end_dates(month, year, instr_config=None, default_day_count: int 
     # for KISS sake, lets assume expiry is last date of contract month
     end_date = datetime(year, month, calendar.monthrange(year, month)[1])
     
-    if instr_config and "days_count" in instr_config:
-        day_count = instr_config["days_count"]
-        start_date = end_date - timedelta(days=day_count)
-    elif next_contract:
-        next_contract_month, next_contract_year = _get_contract_month_year(next_contract)
-        next_contract_end_date = datetime(next_contract_year, next_contract_month, calendar.monthrange(next_contract_year, next_contract_month)[1])
-        start_date = next_contract_end_date + timedelta(days=1)
+    if nearby:
+        if next_contract:
+            next_contract_month, next_contract_year = _get_contract_month_year(next_contract)
+            next_contract_end_date = datetime(next_contract_year, next_contract_month, calendar.monthrange(next_contract_year, next_contract_month)[1])
+            start_date = next_contract_end_date + timedelta(days=1)
+        else:
+            # If there is no next contract, set start date to 1st day of the year
+            start_date = datetime(year=year, month=1, day=1)
     else:
-        # If there is no next contract, set start date to 1st day of the year
-        start_date = datetime(year=year, month=1, day=1)
+        if instr_config and "days_count" in instr_config:
+            day_count = instr_config["days_count"]    
+        else:
+            day_count = default_day_count            
+        start_date = end_date - timedelta(days=day_count)
 
     # but, if that end_date is in the future, then we may as well make it today...
     if now.date() < end_date.date():
