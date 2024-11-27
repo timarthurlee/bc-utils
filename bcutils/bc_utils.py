@@ -672,7 +672,7 @@ def _build_contract_list(start_year, end_year, instr_list=None, contract_map=Non
         rollcycle = config_obj["cycle"]
         instrument_list = []
 
-        for year in range(start_year, end_year):
+        for year in range(start_year, end_year + 1):
             for month_code in list(rollcycle):
                 instrument_list.append(
                     f"{futures_code}{month_code}{str(year)[len(str(year))-2:]}"
