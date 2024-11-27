@@ -36,13 +36,14 @@ class Resolution(enum.Enum):
     Day = (1, "daily")
     Hour = (2, "hourly")
     Minute = (3, "minute")
-    Day_Nearby = (4, "daily_nearby")
-    Hour_Nearby = (5, "hourly_nearby")
-    Minute_Nearby = (6, "minute_nearby")
+    Day_Nearby = (4, "daily_nearby", True)
+    Hour_Nearby = (5, "hourly_nearby", True)
+    Minute_Nearby = (6, "minute_nearby", True)
 
-    def __init__(self, value, adjective):
+    def __init__(self, value, adjective, nearby=False):
         self._value_ = value
         self._adjective_ = adjective
+        self.nearby = nearby
 
     @property
     def adj(self):
@@ -385,7 +386,7 @@ def get_barchart_downloads(
                     instr_config,
                     default_day_count=default_day_count,
                     next_contract=next_contract,
-                    nearby = True if resolution in [Resolution.Day_Nearby, Resolution.Hour_Nearby, Resolution.Minute_Nearby] else False,
+                    nearby = resolution.nearby,
                 )
 
                 if _before_available_res(resolution, start_date, instr_config):
