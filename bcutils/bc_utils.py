@@ -351,8 +351,10 @@ def get_barchart_downloads(
             contract_list = _build_contract_list(
                 start_year, end_year, instr_list=instr_list, contract_map=contract_map
             )
+    
+        for index, contract in enumerate(contract_list):
+            next_contract = contract_list[index + 1] if index < len(contract_list) - 1 else None
 
-        for contract in contract_list:
             if max_exceeded:
                 break
             
@@ -379,6 +381,7 @@ def get_barchart_downloads(
                     year,
                     instr_config,
                     default_day_count=default_day_count,
+                    next_contract=next_contract,
                 )
 
                 if _before_available_res(resolution, start_date, instr_config):
@@ -787,25 +790,28 @@ def _insufficient_data(session, symbol: str, res: Resolution):
         return True
 
 
-def _get_start_end_dates(month, year, instr_config=None, default_day_count: int = 400):
+def _get_start_end_dates(month, year, instr_config=None, default_day_count: int = 400, next_contract = None):
     now = datetime.now()
-    if instr_config and "days_count" in instr_config:
-        day_count = instr_config["days_count"]
-    else:
-        day_count = default_day_count
 
     # we need to work out a date range for which we want the prices
     # for expired contracts the end date would be the expiry date;
     # for KISS sake, lets assume expiry is last date of contract month
     end_date = datetime(year, month, calendar.monthrange(year, month)[1])
+    
+    if instr_config and "days_count" in instr_config:
+        day_count = instr_config["days_count"]
+        start_date = end_date - timedelta(days=day_count)
+    elif next_contract:
+        next_contract_month, next_contract_year = _get_contract_month_year(next_contract)
+        next_contract_end_date = datetime(next_contract_year, next_contract_month, calendar.monthrange(next_contract_year, next_contract_month)[1])
+        start_date = next_contract_end_date + timedelta(days=1)
+    else:
+        # If there is no next contract, set start date to 1st day of the year
+        start_date = datetime(year=year, month=1, day=1)
 
     # but, if that end_date is in the future, then we may as well make it today...
     if now.date() < end_date.date():
         end_date = now
-
-    # let's set start date at <day_count> days before end date
-    day_count = timedelta(days=day_count)
-    start_date = end_date - day_count
 
     return start_date, end_date
 
